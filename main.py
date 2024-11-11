@@ -1,79 +1,80 @@
 import sys
-from PyQt6.QtWidgets import QApplication, QMainWindow, QTableWidget, QTableWidgetItem, QVBoxLayout, QPushButton, QWidget
-from database import Database
-from theme_customizer import ThemeCustomizer
-from task_game import TaskGame
+from PyQt6.QtWidgets import QApplication, QMainWindow, QMessageBox
+from ui_mainwindow import Ui_MainWindow
+from database import DatabaseManager
+from csv_handler import CSVHandler
+from image_handler import ImageHandler
+from exceptions import InvalidDataError
 
-class TaskManager(QMainWindow):
+class LibraryApp(QMainWindow):
     def __init__(self):
         super().__init__()
+        self.ui = Ui_MainWindow()
+        self.ui.setupUi(self)
 
-        self.setWindowTitle("Трекер задач")
+        self.db_manager = DatabaseManager("library.db")
+        self.csv_handler = CSVHandler()
+        self.image_handler = ImageHandler()
 
-        # Инициализация базы данных
-        self.db = Database()
+        self.setup_signals()
 
-        # Основной интерфейс
-        self.table_widget = QTableWidget(self)
-        self.load_tasks()
+    def setup_signals(self):
+        # Привязка действий к кнопкам
+        self.ui.addBookButton.clicked.connect(self.add_book)
+        self.ui.searchButton.clicked.connect(self.search_books)
+        self.ui.importCSVButton.clicked.connect(self.import_csv)
+        self.ui.exportCSVButton.clicked.connect(self.export_csv)
 
-        self.add_task_button = QPushButton("Добавить задачу", self)
-        self.add_task_button.clicked.connect(self.add_task)
+    def add_book(self):
+        try:
+            title = self.ui.titleLineEdit.text()
+            author = self.ui.authorLineEdit.text()
+            year = self.ui.yearLineEdit.text()
+            image = self.ui.imageLineEdit.text()
 
-        self.start_game_button = QPushButton("Мини-игра", self)
-        self.start_game_button.clicked.connect(self.start_game)
+            if not title or not author or not year:
+                raise InvalidDataError("Все поля должны быть заполнены")
 
-        self.theme_button = QPushButton("Настроить тему", self)
-        self.theme_button.clicked.connect(self.open_theme_customizer)
+            self.db_manager.add_book(title, author, year, image)
+            QMessageBox.information(self, "Успех", "Книга добавлена в базу данных")
+        except InvalidDataError as e:
+            QMessageBox.critical(self, "Ошибка", str(e))
 
-        layout = QVBoxLayout()
-        layout.addWidget(self.table_widget)
-        layout.addWidget(self.add_task_button)
-        layout.addWidget(self.start_game_button)
-        layout.addWidget(self.theme_button)
+    def search_books(self):
+        title = self.ui.titleLineEdit.text()
+        books = self.db_manager.search_books(title)
+        # Обновление таблицы
+        self.ui.booksTable.setRowCount(0)
+        for book in books:
+            row_position = self.ui.booksTable.rowCount()
+            self.ui.booksTable.insertRow(row_position)
+            for column, data in enumerate(book):
+                self.ui.booksTable.setItem(row_position, column, data)
 
-        container = QWidget()
-        container.setLayout(layout)
-        self.setCentralWidget(container)
+    def import_csv(self):
+        try:
+            file_path = self.ui.csvFilePath.text()
+            books = self.csv_handler.import_books(file_path)
+            for book in books:
+                self.db_manager.add_book(*book)
+            QMessageBox.information(self, "Успех", "Книги импортированы из CSV")
+        except Exception as e:
+            QMessageBox.critical(self, "Ошибка", str(e))
 
-    def load_tasks(self):
-        """Загрузка задач из базы данных в таблицу"""
-        tasks = self.db.get_all_tasks()
-        self.table_widget.setRowCount(len(tasks))
-        self.table_widget.setColumnCount(6)
+    def export_csv(self):
+        try:
+            file_path = self.ui.csvFilePath.text()
+            books = self.db_manager.get_all_books()
+            self.csv_handler.export_books(books, file_path)
+            QMessageBox.information(self, "Успех", "Книги экспортированы в CSV")
+        except Exception as e:
+            QMessageBox.critical(self, "Ошибка", str(e))
 
-        for row_num, task in enumerate(tasks):
-            for col_num, value in enumerate(task[1:]):
-                self.table_widget.setItem(row_num, col_num, QTableWidgetItem(str(value)))
-
-    def add_task(self):
-        """Добавление новой задачи (например, через жестко заданные данные)"""
-        name = "Новая задача"
-        deadline = "2024-12-01"
-        priority = 3
-        status = "Не выполнено"
-        notes = "Примечания"
-        
-        self.db.add_task(name, deadline, priority, status, notes)
-        self.load_tasks()
-
-    def open_theme_customizer(self):
-        """Открытие окна настройки темы"""
-        theme_window = ThemeCustomizer(self)
-        theme_window.show()
-
-    def start_game(self):
-        """Запуск мини-игры"""
-        game_window = TaskGame()
-        game_window.exec()
-
-    def closeEvent(self, event):
-        """Закрытие программы и сохранение базы данных"""
-        self.db.close()
-        event.accept()
-
-if __name__ == "__main__":
+def main():
     app = QApplication(sys.argv)
-    window = TaskManager()
+    window = LibraryApp()
     window.show()
     sys.exit(app.exec())
+
+if __name__ == "__main__":
+    main()
